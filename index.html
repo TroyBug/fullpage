@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Document</title>
+	<style>
+		html,body{
+			margin: 0;
+			overflow: hidden;
+		}
+		.box{
+			position: relative;
+			height: 100%;
+			overflow: hidden;
+			transition:transform 0.3s linear;
+		}
+		.section{
+			overflow: hidden;
+			height: 100%;
+		}
+		.s1{background: #5686a5}
+		.s2{background: #774a7c}
+		.s3{background: #4a7c74}
+		.s4{background: #7c794a}
+		.s5{background: #4c4c4c}
+
+		h1{margin: 0; color: #fff; text-align: center;}
+		.s1 div{color: #fff; line-height: 24px; text-indent: 2em; padding: 20px}
+
+		.controlBtns{
+			position: fixed;
+			top:50%;
+			right: 10px;
+			margin-top: -40px;
+			_position:absolute;
+		}
+		.controlBtns a{
+			width: 10px;
+			height: 10px;
+			overflow: hidden;
+			margin-bottom: 10px;
+			border-radius: 50%;
+			background-color: #9f9f9f;
+			display: block;
+		}
+		.controlBtns a.active{
+			background-color: #fff;
+		}
+	</style>
+	<script src="jquery.js"></script>
+	<script src="mh.js"></script>
+</head>
+<body>
+	<!-- 屏幕 -->
+	<div class="box">
+		<div class="section s1 active">
+			<h1>setTimeout背后意味着什么</h1>
+			<div>这篇文章一直在使用setTimeout为我们展现和理解js单线程的设计，只是它错误的使用了Event来进行演示，并过度解读了Event。
+这里原文和转载的文章忽略了这些基础的事件触发，而且也偏偏挑了两套本身设计就比较复杂的API：onmouseXXX系和onkeyXXX系。
+
+onKeyXXX系的API触发顺序如图：
+
+onKeyXXX
+
+而我个人所理解它们对应的功能：
+
+onkeydown - 主要获取和处理当前按下按键，例如按下Enter后进行提交。在这一层，并没有更新相关DOM元素的值。
+onkeypress - 主要获取和处理长按键，因为onkeypress在长按键盘的情况下会反复触发直到释放，这里并没有更新相关DOM元素的值，值得注意的是：keypress之后才会更新值，所以在长按键盘反复触发onkeypress事件的时候，后一个触发的onkeypress能得到上一个onkeypress的值。所以出现了onkeypress每次取值都会是上一次的值而不是最新值。
+onkeyup - 触发onkeyup的DOM元素的值在这里已经更新，可以拿到最新的值，所以这里主要处理相关DOM元素的值。
+流程就是上面的图画的那样：
+
+onkeydown => onkeypress => onkeyup
+
+使用了setTimeout之后，流程应该是下面这样子的：
+
+onkeydown => onkeypress => function => onkeyup
+
+使用setTimeout(fn,0)之后，在onkeypress后面插入了我们的函数function。上面所说，浏览器在onkeypress之后就会更新相关DOM元素的状态（input[type=text]的value），所以我们的function里面可以拿到最新的值。
+所以我们在onkeypress里面挂起setTimeout能拿到正确的值，下面的代码可以测试使用setTimeout(fn,0)之后的流程：
+			</div>
+		</div>
+		<div class="section s2">屏幕2</div>
+		<div class="section s3">屏幕3</div>
+		<div class="section s4">屏幕4</div>
+		<div class="section s5">屏幕5</div>
+	</div>
+	<!-- 控制器 -->
+	<div class="controlBtns"></div>
+	<script>
+		(function($,w,d) {
+			$.fn.FullPage = function(options) {
+				var options = $.extend(defaults,options || {}),
+					that = $(this),	//引用最外层容器
+					curH = $(w).innerHeight(),	//当前窗口的高度
+					container = $(defaults.container),	//最外层容器
+					section = that.find(options.section),	//每个屏幕分块的引用
+					len = section.length,	//分屏数量
+					curSection,	//局部变量，用于保存某个分屏
+					curIdx = 0,	//初始屏索引
+					lock = false,i=0,
+					callback = options.callback,
+					controller = $(defaults.controller),	//控制器
+					navigate = navigator.userAgent.toLowerCase().match(/msie (\d+)/i),
+					broswerSupport = navigate ? (navigate[1] <= 9 ? false : true) : true;
+
+				//设置屏幕分块的高
+				that.find(section).css({height:curH + 'px'});
+
+				$(d.body).bind('mousewheel',function(e,delta) {
+					if(lock) return;	//锁定
+					lock = true;
+					if(delta === -1) {	//滚轮向下
+						if(preScroll(-1)) {
+							lock = false;
+							return;
+						} 
+						//若索引超出范围则纠正
+						curIdx = curIdx < (len - 1) ? ++curIdx : (len - 1);
+					} else if(delta === 1) {	//滚轮向上
+						if(preScroll(1)) {
+							lock = false;
+							return;
+						}
+						curIdx = curIdx <= 0 ? 0 : --curIdx;
+					}
+
+					//设置当前屏的样式为激活并设置高度为满屏
+					section.removeClass(options.active).eq(curIdx).addClass(options.active).css({height:curH + 'px'});
+					//更新控制器选中状态
+					if(controller && controller.length > 0) {
+						controlBtns.removeClass(options.active).eq(curIdx).addClass(options.active);
+					}
+
+					//最外层容器移动位置
+					if(broswerSupport) {
+						that.css('transform','translate3d(0,'+ -curH * curIdx +'px,0)');
+
+						triggerOnce();
+					} else {
+						that.animate({'top': -curH * curIdx +'px'},function() {
+							callback && callback(curIdx);
+							setTimeout(function() {
+								lock = false;
+							},defaults.delay || 600);
+						});
+					}
+
+				});
+
+				//操作控制器切换分块
+				if(controller.length > 0) {
+					for(; i<len; i++) {
+						controller.append($('<a>',{'href':'javascript:void(0)'}));
+					}
+					var controlBtns = controller.find('a');
+					controlBtns.eq(0).addClass(options.active);
+					
+					controlBtns.each(function() {
+						$(this).bind('click',function() {
+							controlBtns.removeClass(options.active);
+							$(this).addClass(options.active);
+							curIdx = $(this).index();	//更新索引
+							//设置当前屏的样式为激活并设置高度为满屏
+							section.removeClass(options.active).eq(curIdx).addClass(options.active);
+							if(broswerSupport) {
+								container.css({
+									'transform':'translate3d(0,'+ curH * curIdx * -1 +'px,0)'
+								});
+								triggerOnce();
+							} else {
+								that.animate({'top': -curH * curIdx +'px'},function() {
+									callback && callback(curIdx);
+									lock = false;
+								});
+							}
+						});
+					});
+				}
+
+				//使transitionend只触发一次
+				var triggerOnce = function() {
+					container.one('transitionend',function() {
+						callback && callback(curIdx);
+						setTimeout(function() {
+							lock = false;
+						},defaults.delay || 600);
+					});
+				};
+
+
+				$(w).bind('resize',function() {
+					setTimeout(toResize,200);
+				});
+
+				//窗口缩放时重新计算高度
+				var toResize = function() {
+					curH = $(w).innerHeight();
+					section.css('height',curH+'px');
+					if(broswerSupport) {
+						container.css({
+							'transform':'translate3d(0,'+ curH * curIdx * -1 +'px,0)'
+						});
+					} else {
+						container.css({
+							'top': -curH * curIdx + 'px' 
+						});
+					}
+				};
+
+				return this;
+			};
+
+			//阻止鼠标中键单击后的默认动作
+			$(d).bind('mousedown',function(e) {
+				if(e.button === 1) {
+					e.preventDefault();
+				}
+			});
+
+			//默认属性
+			var defaults = {
+				section:'.section',	//每一屏的容器样式
+				active:'active',	//表示当前屏被激活时所用的样式
+				container:'.box',	//最外层容器
+				controller:'.controlBtns',	//控制器
+				speed: 300,	//动画速度
+				delay: 600,	//每次滚动完成后的锁屏时间
+				callback: function(idx) {}	//每一屏完成切换后的回调函数
+			};
+
+			//如果滚动屏到达最后或第一个，不再触发滚轮事件
+			var preScroll = function(direction) {
+				var curSection = $(defaults.container).find(defaults.section);
+				
+				if(curSection.eq(0).hasClass(defaults.active) && direction === 1) {
+					return true;
+				} else if(curSection.eq(-1).hasClass(defaults.active) && direction === -1) {
+					return true;
+				}
+				return false;
+			};
+
+			
+		})(jQuery,window,document);
+
+		$('.box').FullPage({
+			callback:function(i) {
+				switch (i) {
+					case 0:
+						document.title = 1;
+						break;
+					case 1:
+						document.title = 2;
+						break;
+					case 2:
+						document.title = 3;
+						break;
+					case 3:
+						document.title = 4;
+						break;
+					case 4:
+						document.title = 5;
+						break;
+					default:
+						break;
+				}
+			}
+		});
+	</script>
+</body>
+</html>
